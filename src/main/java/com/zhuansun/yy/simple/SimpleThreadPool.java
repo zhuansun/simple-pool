@@ -1,5 +1,6 @@
 package com.zhuansun.yy.simple;
 
+import java.util.Iterator;
 import java.util.LinkedList;
 
 /**
@@ -66,9 +67,19 @@ public class SimpleThreadPool extends Thread {
      */
     private final String THREAD_PREFIX = "simple-pool-thread-";
 
+    /**
+     * 线程是否销毁
+     */
+    private boolean destroy = false;
+
+    /**
+     * 当前线程池中线程数量
+     */
+    private int size;
+
 
     public SimpleThreadPool() {
-        this(4, 8, 12, 10, new DefaultDiscardPolicy());
+        this(4, 20, 10, 200000, new DefaultDiscardPolicy());
     }
 
     public SimpleThreadPool(int min, int max, int active, int taskQueueSize, DiscardPolicy discardPolicy) {
@@ -85,6 +96,8 @@ public class SimpleThreadPool extends Thread {
         for (int i = 0; i < this.min; i++) {
             createWorkerThread();
         }
+        this.size = this.min;
+        //在这里启动自己，并且开始监控
         this.start();
     }
 
@@ -98,14 +111,46 @@ public class SimpleThreadPool extends Thread {
 
     @Override
     public void run() {
-        //线程池也是作为一个线程，在init之后，需要启动，启动之后，线程队列中的多个线程去读取任务队列
+        while (!destroy) {
+            //线程池也是作为一个线程，实时监控任务队列中的数量，动态的增减线程数量
+            System.out.printf("线程池 # Min:%d,Active:%d,Max:%d,当前线程数:%d,队列大小:%d\n",
+                    this.min, this.active, this.max, this.size, TASK_QUEUE.size());
+            try {
+                Thread.sleep(5_000L);
+                if (TASK_QUEUE.size() > active && size < active) {
+                    for (int i = size; i < active; i++) {
+                        createWorkerThread();
+                    }
+                    System.out.println("The pool incremented to active.");
+                    size = active;
+                } else if (TASK_QUEUE.size() > max && size < max) {
+                    for (int i = size; i < max; i++) {
+                        createWorkerThread();
+                    }
+                    System.out.println("The pool incremented to max.");
+                    size = max;
+                }
 
-        synchronized (TASK_QUEUE) {
-            if (TASK_QUEUE.isEmpty()) {
+                synchronized (THREAD_QUEUE) {
+                    if (TASK_QUEUE.isEmpty() && size > active) {
+                        System.out.println("=========Reduce========");
+                        int releaseSize = size - active;
+                        for (Iterator<WorkerThread> it = THREAD_QUEUE.iterator(); it.hasNext(); ) {
+                            if (releaseSize <= 0)
+                                break;
 
+                            WorkerThread task = it.next();
+                            task.close();
+                            task.interrupt();
+                            it.remove();
+                            releaseSize--;
+                        }
+                        size = active;
+                    }
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
-
-
         }
     }
 
@@ -126,8 +171,6 @@ public class SimpleThreadPool extends Thread {
                 TASK_QUEUE.notifyAll();
             }
         }
-
-
     }
 
 
@@ -157,6 +200,7 @@ public class SimpleThreadPool extends Thread {
                 }
             }
         }
+        this.destroy = true;
         System.out.println("线程池已销毁");
     }
 
