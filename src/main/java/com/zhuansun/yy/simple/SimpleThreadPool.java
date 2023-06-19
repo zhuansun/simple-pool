@@ -239,6 +239,7 @@ public class SimpleThreadPool extends Thread {
                 synchronized (TASK_QUEUE) {
                     if (TASK_QUEUE.isEmpty()) {
                         try {
+                            //如果任务队列是空的，让线程池进入到阻塞状态
                             threadStatus = ThreadStatus.BLOCKED;
                             //wait是释放锁的，
                             TASK_QUEUE.wait();
